@@ -148,7 +148,8 @@ func (p *HelmChartInflationGeneratorPlugin) runHelmCommand(
 	env := []string{
 		fmt.Sprintf("HELM_CONFIG_HOME=%s", p.ConfigHome),
 		fmt.Sprintf("HELM_CACHE_HOME=%s/.cache", p.ConfigHome),
-		fmt.Sprintf("HELM_DATA_HOME=%s/.data", p.ConfigHome)}
+		fmt.Sprintf("HELM_DATA_HOME=%s/.data", p.ConfigHome),
+		"HELM_EXPERIMENTAL_OCI=1"}
 	cmd.Env = append(os.Environ(), env...)
 	err := cmd.Run()
 	if err != nil {
@@ -236,7 +237,15 @@ func (p *HelmChartInflationGeneratorPlugin) Generate() (rm resmap.ResMap, err er
 			return nil, fmt.Errorf(
 				"no repo specified for pull, no chart found at '%s'", path)
 		}
-		if _, err := p.runHelmCommand(p.pullCommand()); err != nil {
+		pullCommand := p.pullCommand()
+		if p.isOciRepo() {
+			if p.Version == "" {
+				return nil, fmt.Errorf(
+					"pulling from oci repo requires a version to be set, no chart found at '%s'", path)
+			}
+			pullCommand = p.pullCommandOci()
+		}
+		if _, err := p.runHelmCommand(pullCommand); err != nil {
 			return nil, err
 		}
 	}
@@ -291,6 +300,10 @@ func (p *HelmChartInflationGeneratorPlugin) templateCommand() []string {
 	return args
 }
 
+func (p *HelmChartInflationGeneratorPlugin) isOciRepo() bool {
+	return strings.HasPrefix(p.Repo, "oci://")
+}
+
 func (p *HelmChartInflationGeneratorPlugin) pullCommand() []string {
 	args := []string{
 		"pull",
@@ -301,6 +314,17 @@ func (p *HelmChartInflationGeneratorPlugin) pullCommand() []string {
 	if p.Version != "" {
 		args = append(args, "--version", p.Version)
 	}
+	return args
+}
+
+func (p *HelmChartInflationGeneratorPlugin) pullCommandOci() []string {
+	artifactName := p.Repo + "/" + p.Name
+	args := []string{
+		"pull",
+		"--untar",
+		"--untardir", p.absChartHome(),
+		artifactName,
+		"--version", p.Version}
 	return args
 }
 
